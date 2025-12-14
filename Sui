@@ -1,0 +1,147 @@
+import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:flutter/services.dart'; // Для обработки ошибок платформы
+
+void main() {
+  runApp(const BiometricApp());
+}
+
+class BiometricApp extends StatelessWidget {
+  const BiometricApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Biometric Auth Demo',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: const FingerprintAuthScreen(),
+    );
+  }
+}
+
+class FingerprintAuthScreen extends StatefulWidget {
+  const FingerprintAuthScreen({super.key});
+
+  @override
+  State<FingerprintAuthScreen> createState() => _FingerprintAuthScreenState();
+}
+
+class _FingerprintAuthScreenState extends State<FingerprintAuthScreen> {
+  final LocalAuthentication auth = LocalAuthentication();
+  String _authorized = 'Не аутентифицирован';
+
+  // --- 1. ПРОВЕРКА ДОСТУПНОСТИ СИСТЕМЫ ---
+
+  Future<void> _checkBiometrics() async {
+    late bool canCheckBiometrics;
+    try {
+      // Проверяет, поддерживает ли устройство биометрию (есть ли сенсор)
+      canCheckBiometrics = await auth.canCheckBiometrics;
+    } on PlatformException catch (e) {
+      canCheckBiometrics = false;
+      print(e);
+    }
+    
+    // Проверяет, включена ли хотя бы одна биометрия (отпечаток, Face ID)
+    late List<BiometricType> availableBiometrics;
+    try {
+      availableBiometrics = await auth.getAvailableBiometrics();
+    } on PlatformException catch (e) {
+      availableBiometrics = [];
+      print(e);
+    }
+
+    if (canCheckBiometrics && availableBiometrics.isNotEmpty) {
+        setState(() {
+            _authorized = 'Доступно: ${availableBiometrics.join(', ')}';
+        });
+    } else {
+        setState(() {
+            _authorized = 'Биометрия не настроена или недоступна.';
+        });
+    }
+  }
+
+  // --- 2. ЗАПУСК АУТЕНТИФИКАЦИИ ---
+
+  Future<void> _authenticate() async {
+    bool authenticated = false;
+    try {
+      setState(() {
+        _authorized = 'Попытка аутентификации...';
+      });
+
+      // Вызов системного диалога
+      authenticated = await auth.authenticate(
+        localizedReason: 'Подтвердите отпечаток пальца для доступа', // Текст, видимый пользователю
+        options: const AuthenticationOptions(
+          stickyAuth: true, // Держать приложение открытым во время аутентификации
+          useErrorDialogs: true, // Показывать стандартные ошибки
+        ),
+      );
+    } on PlatformException catch (e) {
+      print('Ошибка аутентификации: $e');
+      setState(() {
+        _authorized = 'Ошибка платформы: ${e.message}';
+      });
+      return;
+    }
+
+    if (!mounted) return;
+
+    // Обновление статуса после завершения
+    setState(() {
+      _authorized = authenticated ? '✅ Успешно аутентифицирован' : '❌ Аутентификация не удалась';
+    });
+  }
+  
+  // Инициализация при старте
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometrics();
+  }
+
+  // --- UI ---
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Биометрическая аутентификация'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              'Статус биометрии: $_authorized',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 18),
+            ),
+            const SizedBox(height: 50),
+            ElevatedButton.icon(
+              onPressed: _authenticate,
+              icon: const Icon(Icons.fingerprint, size: 30),
+              label: const Text(
+                'Аутентификация',
+                style: TextStyle(fontSize: 18),
+              ),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: _checkBiometrics,
+              child: const Text('Проверить доступность биометрии'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
